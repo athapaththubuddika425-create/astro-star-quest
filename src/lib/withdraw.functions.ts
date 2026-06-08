@@ -71,7 +71,7 @@ export const saveWallet = createServerFn({ method: "POST" })
     const { requireProfile } = await import("./tg-auth.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { profile } = await requireProfile(data.initData);
-    const upd: Record<string, string> = {};
+    const upd: { wallet_ton?: string; wallet_usdt_aptos?: string } = {};
     if (data.wallet_ton !== undefined) upd.wallet_ton = data.wallet_ton;
     if (data.wallet_usdt_aptos !== undefined) upd.wallet_usdt_aptos = data.wallet_usdt_aptos;
     if (Object.keys(upd).length === 0) return { ok: true };
