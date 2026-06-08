@@ -3,7 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import SplashScreen from "@/components/SplashScreen";
 import NotificationGate from "@/components/NotificationGate";
-import HomeScreen from "@/components/HomeScreen";
+import MainApp from "@/components/MainApp";
 import { getDeviceFingerprint, useTelegram } from "@/lib/telegram-webapp";
 import { initSession } from "@/lib/auth.functions";
 
@@ -96,5 +96,5 @@ function AppShell() {
     );
   }
 
-  return <HomeScreen profile={profile} />;
+  return <MainApp initData={tg!.initData} profile={profile} onProfile={setProfile} />;
 }
