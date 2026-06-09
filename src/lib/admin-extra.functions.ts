@@ -120,9 +120,9 @@ export const adminSuspendUser = createServerFn({ method: "POST" })
       .update({ is_suspended: data.suspend, suspend_reason: data.suspend ? (data.reason ?? "Suspended by admin") : null })
       .eq("tg_id", data.tg_id);
     await supabaseAdmin.from("user_actions").insert({
-      tg_id: data.tg_id, admin_id: s.admin_id, action: data.suspend ? "suspend" : "unsuspend", note: data.reason ?? null,
+      tg_id: data.tg_id, admin_id: s.admin_id, action: data.suspend ? "suspend" : "unsuspend",
+      note: data.reason ?? null,
     });
-    return { ok: true };
   });
 
 export const adminAdjustBalance = createServerFn({ method: "POST" })
