@@ -123,10 +123,6 @@ export const adminSuspendUser = createServerFn({ method: "POST" })
       tg_id: data.tg_id, admin_id: s.admin_id, action: data.suspend ? "suspend" : "unsuspend",
       note: data.reason ?? null,
     });
-    await supabaseAdmin.from("user_actions").insert({
-      tg_id: data.tg_id, admin_id: s.admin_id, action: data.suspend ? "suspend" : "unsuspend",
-      note: data.reason ?? null,
-    });
     return { ok: true };
   });
 
