@@ -370,3 +370,191 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </label>
   );
 }
+
+function Users({ token }: { token: string }) {
+  const list = useServerFn(adminListUsers);
+  const detail = useServerFn(adminGetUserDetail);
+  const suspend = useServerFn(adminSuspendUser);
+  const adjust = useServerFn(adminAdjustBalance);
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof adminListUsers>>["rows"]>([]);
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState<"all" | "active" | "suspended">("all");
+  const [sel, setSel] = useState<Awaited<ReturnType<typeof adminGetUserDetail>> | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    setBusy(true);
+    try {
+      const r = await list({ data: { token, q, status, limit: 100, offset: 0 } });
+      setRows(r.rows);
+    } finally { setBusy(false); }
+  }
+  useEffect(() => { load().catch(console.error); }, [status]);
+
+  async function open(tgId: number) {
+    const r = await detail({ data: { token, tg_id: tgId } });
+    setSel(r);
+  }
+  async function toggleSuspend(tgId: number, on: boolean) {
+    const reason = on ? prompt("Reason:") ?? undefined : undefined;
+    if (on && !reason) return;
+    await suspend({ data: { token, tg_id: tgId, suspend: on, reason } });
+    await load(); if (sel?.profile?.tg_id === tgId) await open(tgId);
+  }
+  async function doAdjust(tgId: number) {
+    const v = prompt("Delta (positive add, negative remove):");
+    if (!v) return;
+    const note = prompt("Note (optional):") ?? "";
+    await adjust({ data: { token, tg_id: tgId, delta: Number(v), note } });
+    await open(tgId); await load();
+  }
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search tg_id / username" className="flex-1 rounded-lg bg-background border border-border px-3 py-1.5 text-xs" />
+          <button onClick={load} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground">Search</button>
+        </div>
+        <div className="flex gap-1">
+          {(["all", "active", "suspended"] as const).map((s) => (
+            <button key={s} onClick={() => setStatus(s)} className={`rounded-lg px-2 py-1 text-xs capitalize ${status === s ? "bg-primary text-primary-foreground" : "border border-border"}`}>{s}</button>
+          ))}
+        </div>
+        {busy && <p className="text-xs text-muted-foreground">Loading…</p>}
+        <div className="max-h-[70vh] overflow-y-auto space-y-1">
+          {rows.map((u) => (
+            <button key={u.tg_id} onClick={() => open(u.tg_id)} className={`block w-full text-left rounded-xl border p-2 text-xs ${u.is_suspended ? "border-destructive/40 bg-destructive/5" : "border-border bg-card/60"}`}>
+              <div className="flex justify-between">
+                <span className="font-bold">{u.first_name ?? "?"} {u.username && <span className="text-muted-foreground">@{u.username}</span>}</span>
+                <span className="text-gold">{Number(u.coins).toLocaleString()}</span>
+              </div>
+              <p className="text-muted-foreground">🆔 {u.tg_id} • L{u.game_level} • {u.ads_watched} ads • {u.verified_refer_count} ref</p>
+              {u.is_suspended && <p className="text-destructive">🚫 {u.suspend_reason}</p>}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        {!sel && <p className="text-xs text-muted-foreground">Select a user.</p>}
+        {sel?.profile && (
+          <div className="rounded-2xl border border-border bg-card/70 p-3 text-xs space-y-2">
+            <div className="flex justify-between">
+              <div>
+                <p className="font-bold text-sm">{sel.profile.first_name} @{sel.profile.username}</p>
+                <p className="text-muted-foreground">🆔 {sel.profile.tg_id}</p>
+              </div>
+              <span className="text-gold font-bold">{Number(sel.profile.coins).toLocaleString()} coins</span>
+            </div>
+            <p className="text-muted-foreground">Expected from ledger: <b>{Number(sel.expected_balance).toLocaleString()}</b> {Math.abs(Number(sel.profile.coins) - sel.expected_balance) > 0.01 && <span className="text-destructive">⚠ mismatch</span>}</p>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => doAdjust(sel.profile.tg_id)} className="rounded-lg bg-primary px-2 py-1 text-primary-foreground">± Balance</button>
+              <button onClick={() => toggleSuspend(sel.profile.tg_id, !sel.profile.is_suspended)} className={`rounded-lg px-2 py-1 text-white ${sel.profile.is_suspended ? "bg-green-600" : "bg-destructive"}`}>
+                {sel.profile.is_suspended ? "Un-suspend" : "Suspend"}
+              </button>
+            </div>
+            <div>
+              <p className="font-bold mt-2">Recent ledger</p>
+              <div className="max-h-32 overflow-y-auto">
+                {sel.ledger.slice(0, 20).map((l) => (
+                  <p key={l.id} className="text-[10px] font-mono">{new Date(l.created_at).toLocaleString()} {Number(l.delta) >= 0 ? "+" : ""}{l.delta} <span className="text-muted-foreground">{l.reason}</span></p>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="font-bold mt-2">Recent withdrawals</p>
+              {sel.withdrawals.slice(0, 10).map((w) => (
+                <p key={w.id} className="text-[10px]">{w.status} • {w.currency} {Number(w.net_amount).toFixed(6)} • {new Date(w.created_at).toLocaleDateString()}</p>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Ads({ token }: { token: string }) {
+  const list = useServerFn(adminListAdBlocks);
+  const save = useServerFn(adminSaveAdBlock);
+  const del = useServerFn(adminDeleteAdBlock);
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof adminListAdBlocks>>>([]);
+  const empty = { network: "", label: "", logo_url: "", buttons_count: 10, reward_min: 5, reward_max: 10, cooldown_seconds: 43200, button_lock_seconds: 5, is_enabled: true, sort_order: 0, zone_id: "", sdk_extra: "" };
+  const [f, setF] = useState<typeof empty & { id?: string }>(empty);
+  async function load() { setRows(await list({ data: { token } })); }
+  useEffect(() => { load().catch(console.error); }, []);
+  async function submit() {
+    await save({ data: { token, ...f, buttons_count: Number(f.buttons_count), reward_min: Number(f.reward_min), reward_max: Number(f.reward_max), cooldown_seconds: Number(f.cooldown_seconds), button_lock_seconds: Number(f.button_lock_seconds), sort_order: Number(f.sort_order) } });
+    setF(empty); await load();
+  }
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <div className="space-y-2">
+        {rows.map((b) => (
+          <div key={b.id} className="rounded-xl border border-border bg-card/70 p-3 text-xs">
+            <div className="flex justify-between">
+              <p className="font-bold">{b.label} <span className="text-muted-foreground">({b.network})</span></p>
+              <span className={b.is_enabled ? "text-green-300" : "text-muted-foreground"}>{b.is_enabled ? "ON" : "OFF"}</span>
+            </div>
+            <p className="text-muted-foreground">{b.buttons_count} buttons • {Number(b.reward_min)}–{Number(b.reward_max)} coins • {b.cooldown_seconds}s cd • {b.button_lock_seconds}s lock</p>
+            <div className="mt-2 flex gap-2">
+              <button onClick={() => setF({ id: b.id, network: b.network, label: b.label, logo_url: b.logo_url ?? "", buttons_count: b.buttons_count, reward_min: Number(b.reward_min), reward_max: Number(b.reward_max), cooldown_seconds: b.cooldown_seconds, button_lock_seconds: b.button_lock_seconds, is_enabled: b.is_enabled, sort_order: b.sort_order, zone_id: b.zone_id ?? "", sdk_extra: b.sdk_extra ? JSON.stringify(b.sdk_extra) : "" })} className="rounded-lg border border-border px-2 py-1">Edit</button>
+              <button onClick={async () => { if (confirm("Delete?")) { await del({ data: { token, id: b.id } }); load(); } }} className="rounded-lg bg-destructive px-2 py-1 text-destructive-foreground">Delete</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-2xl border border-border bg-card/70 p-4">
+        <h3 className="font-bold">{f.id ? "Edit ad block" : "New ad block"}</h3>
+        <Field label="Network slug (lowercase)"><input className="w-full bg-background rounded px-2 py-1" value={f.network} onChange={(e) => setF({ ...f, network: e.target.value })} /></Field>
+        <Field label="Label"><input className="w-full bg-background rounded px-2 py-1" value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} /></Field>
+        <Field label="Logo URL"><input className="w-full bg-background rounded px-2 py-1" value={f.logo_url} onChange={(e) => setF({ ...f, logo_url: e.target.value })} /></Field>
+        <div className="grid grid-cols-3 gap-2">
+          <Field label="Buttons"><input type="number" className="w-full bg-background rounded px-2 py-1" value={f.buttons_count} onChange={(e) => setF({ ...f, buttons_count: Number(e.target.value) })} /></Field>
+          <Field label="Reward min"><input type="number" className="w-full bg-background rounded px-2 py-1" value={f.reward_min} onChange={(e) => setF({ ...f, reward_min: Number(e.target.value) })} /></Field>
+          <Field label="Reward max"><input type="number" className="w-full bg-background rounded px-2 py-1" value={f.reward_max} onChange={(e) => setF({ ...f, reward_max: Number(e.target.value) })} /></Field>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Cooldown (s)"><input type="number" className="w-full bg-background rounded px-2 py-1" value={f.cooldown_seconds} onChange={(e) => setF({ ...f, cooldown_seconds: Number(e.target.value) })} /></Field>
+          <Field label="Button lock (s)"><input type="number" className="w-full bg-background rounded px-2 py-1" value={f.button_lock_seconds} onChange={(e) => setF({ ...f, button_lock_seconds: Number(e.target.value) })} /></Field>
+        </div>
+        <Field label="Zone / block id"><input className="w-full bg-background rounded px-2 py-1" value={f.zone_id} onChange={(e) => setF({ ...f, zone_id: e.target.value })} /></Field>
+        <Field label="SDK extra (JSON)"><textarea rows={3} className="w-full bg-background rounded px-2 py-1 font-mono text-[11px]" value={f.sdk_extra} onChange={(e) => setF({ ...f, sdk_extra: e.target.value })} /></Field>
+        <Field label="Sort order"><input type="number" className="w-full bg-background rounded px-2 py-1" value={f.sort_order} onChange={(e) => setF({ ...f, sort_order: Number(e.target.value) })} /></Field>
+        <label className="mt-2 flex items-center gap-2 text-xs"><input type="checkbox" checked={f.is_enabled} onChange={(e) => setF({ ...f, is_enabled: e.target.checked })} /> Enabled</label>
+        <div className="mt-3 flex gap-2">
+          <button onClick={submit} className="rounded-lg bg-primary px-3 py-1.5 font-bold text-primary-foreground">{f.id ? "Update" : "Create"}</button>
+          {f.id && <button onClick={() => setF(empty)} className="rounded-lg border border-border px-3 py-1.5">Cancel</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CommunityPost({ token }: { token: string }) {
+  const post = useServerFn(adminPostToCommunity);
+  const [message, setMessage] = useState("");
+  const [image, setImage] = useState("");
+  const [btnText, setBtnText] = useState("");
+  const [btnUrl, setBtnUrl] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  async function submit() {
+    try {
+      await post({ data: { token, message, image_url: image, button_text: btnText, button_url: btnUrl } });
+      setMsg("✅ Posted to community.");
+      setMessage(""); setImage(""); setBtnText(""); setBtnUrl("");
+    } catch (e) { setMsg(e instanceof Error ? e.message : "Failed"); }
+  }
+  return (
+    <div className="max-w-xl rounded-2xl border border-border bg-card/70 p-4">
+      <h3 className="font-bold">📣 Post to community channel</h3>
+      <p className="text-[11px] text-muted-foreground">Posts via bot to the channel set in <code>community_chat_id</code>. Make sure bot is admin in the channel.</p>
+      <Field label="Message (HTML allowed)"><textarea rows={6} className="w-full bg-background rounded px-2 py-1" value={message} onChange={(e) => setMessage(e.target.value)} /></Field>
+      <Field label="Image URL (optional)"><input className="w-full bg-background rounded px-2 py-1" value={image} onChange={(e) => setImage(e.target.value)} /></Field>
+      <Field label="Button text"><input className="w-full bg-background rounded px-2 py-1" value={btnText} onChange={(e) => setBtnText(e.target.value)} /></Field>
+      <Field label="Button URL"><input className="w-full bg-background rounded px-2 py-1" value={btnUrl} onChange={(e) => setBtnUrl(e.target.value)} /></Field>
+      <button onClick={submit} className="mt-3 rounded-lg bg-primary px-3 py-1.5 font-bold text-primary-foreground">Send now</button>
+      {msg && <p className="mt-3 text-xs">{msg}</p>}
+    </div>
+  );
+}
