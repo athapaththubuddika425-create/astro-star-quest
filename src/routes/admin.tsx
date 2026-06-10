@@ -468,7 +468,7 @@ function Users({ token }: { token: string }) {
               ))}
             </div>
           </div>
-        )}
+        ); })()}
       </div>
     </div>
   );
