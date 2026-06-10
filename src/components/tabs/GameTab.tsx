@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { finishGame } from "@/lib/game.functions";
-import { claimAd } from "@/lib/ads.functions";
+import { claimAd, getRandomAdNetwork } from "@/lib/ads.functions";
+import { showAd } from "@/lib/adsdk";
 import type { Profile } from "../MainApp";
 
 type Props = { initData: string; profile: Profile; onCoins: (c: number) => void };
