@@ -161,7 +161,7 @@ export default function GameTab({ initData, profile, onCoins }: Props) {
         setStatus("playing");
       } catch (e) {
         console.error(e);
-        window.Telegram?.WebApp?.showAlert?.("Ad failed — please try again.");
+        alert("Ad failed — please try again.");
       } finally {
         setReviveBusy(false);
       }
