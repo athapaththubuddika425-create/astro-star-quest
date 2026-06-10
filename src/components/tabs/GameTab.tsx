@@ -22,7 +22,9 @@ export default function GameTab({ initData, profile, onCoins }: Props) {
   const [reward, setReward] = useState<number | null>(null);
   const finish = useServerFn(finishGame);
   const watchAd = useServerFn(claimAd);
+  const pickAd = useServerFn(getRandomAdNetwork);
   const [reviveUsed, setReviveUsed] = useState(false);
+  const [reviveBusy, setReviveBusy] = useState(false);
 
   const stateRef = useRef({
     y: 0, v: 0, obstacles: [] as Obstacle[], frame: 0, score: 0, alive: false,
