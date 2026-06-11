@@ -6,7 +6,7 @@ import {
   adminListTasks, adminSaveTask, adminDeleteTask,
   adminListChallenges, adminSaveChallenge, adminDeleteChallenge,
   adminGetSettings, adminSaveSetting, adminCreateBroadcast,
-  adminListTickets, adminReplyTicket,
+  adminListTickets, adminReplyTicket, adminChangeCredentials,
 } from "@/lib/admin.functions";
 import {
   adminListAdBlocks, adminSaveAdBlock, adminDeleteAdBlock,
@@ -19,7 +19,7 @@ export const Route = createFileRoute("/admin")({
   component: AdminPage,
 });
 
-type View = "dashboard" | "withdrawals" | "users" | "ads" | "tasks" | "challenges" | "broadcast" | "community" | "tickets" | "settings";
+type View = "dashboard" | "withdrawals" | "users" | "ads" | "tasks" | "challenges" | "broadcast" | "community" | "tickets" | "settings" | "profile";
 
 function AdminPage() {
   const [token, setToken] = useState<string | null>(() => (typeof localStorage !== "undefined" ? localStorage.getItem("ab_admin_token") : null));
