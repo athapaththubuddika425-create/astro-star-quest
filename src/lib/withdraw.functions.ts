@@ -53,14 +53,19 @@ export const getWithdrawData = createServerFn({ method: "POST" })
     const { profile } = await requireProfile(data.initData);
     const prices = await refreshPrices();
     const rate = Number(await getSetting("coin_to_usd_rate", 0.0001));
-    const minUsd = Number(await getSetting("min_withdraw_usd", 0.01));
+    const minUsd = Number(await getSetting("min_withdraw_usd", 0.05));
     const maxUsd = Number(await getSetting("max_withdraw_usd", 0.15));
     const feePct = Number(await getSetting("withdraw_fee_pct", 5));
+    const feeFlatUsd = Number(await getSetting("withdraw_fee_flat_usd", 0.01));
+    const minAds = Number(await getSetting("withdraw_min_ads", 20));
+    const minRefers = Number(await getSetting("withdraw_min_refers", 0));
 
     const { data: history } = await supabaseAdmin
       .from("withdrawals").select("*")
       .eq("tg_id", profile.tg_id)
       .order("created_at", { ascending: false }).limit(30);
+
+    const has_pending = (history ?? []).some((w) => w.status === "pending");
 
     const p = profile as unknown as Record<string, string | null>;
     return {
@@ -70,10 +75,17 @@ export const getWithdrawData = createServerFn({ method: "POST" })
       min_withdraw_usd: minUsd,
       max_withdraw_usd: maxUsd,
       fee_pct: feePct,
+      fee_flat_usd: feeFlatUsd,
       prices,
       wallet_ton: p.wallet_ton ?? "",
       wallet_usdt_bep20: p.wallet_usdt_bep20 ?? "",
       history: history ?? [],
+      has_pending,
+      requirements: {
+        min_ads: minAds, ads_done: Number(profile.ads_watched ?? 0),
+        min_refers: minRefers, refers_done: Number(profile.verified_refer_count ?? 0),
+        met: Number(profile.ads_watched ?? 0) >= minAds && Number(profile.verified_refer_count ?? 0) >= minRefers,
+      },
     };
   });
 
