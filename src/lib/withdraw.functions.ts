@@ -129,17 +129,36 @@ export const requestWithdraw = createServerFn({ method: "POST" })
     const address = data.currency === "TON" ? p.wallet_ton : p.wallet_usdt_bep20;
     if (!address) throw new Error("Set your wallet address first");
 
+    // Block when a pending request already exists
+    const { data: pendings } = await supabaseAdmin
+      .from("withdrawals").select("id").eq("tg_id", profile.tg_id).eq("status", "pending").limit(1);
+    if (pendings && pendings.length > 0) {
+      throw new Error("You already have a pending withdrawal. Wait until it's processed.");
+    }
+
     const rate = Number(await getSetting("coin_to_usd_rate", 0.0001));
-    const minUsd = Number(await getSetting("min_withdraw_usd", 0.01));
+    const minUsd = Number(await getSetting("min_withdraw_usd", 0.05));
     const maxUsd = Number(await getSetting("max_withdraw_usd", 0.15));
     const feePct = Number(await getSetting("withdraw_fee_pct", 5));
+    const feeFlatUsd = Number(await getSetting("withdraw_fee_flat_usd", 0.01));
+    const minAds = Number(await getSetting("withdraw_min_ads", 20));
+    const minRefers = Number(await getSetting("withdraw_min_refers", 0));
+    if (Number(profile.ads_watched ?? 0) < minAds) {
+      throw new Error(`Watch at least ${minAds} ads to unlock withdraw (you have ${profile.ads_watched ?? 0}).`);
+    }
+    if (Number(profile.verified_refer_count ?? 0) < minRefers) {
+      throw new Error(`Refer at least ${minRefers} verified friends to unlock withdraw.`);
+    }
     const amount_usd = data.coins * rate;
     if (amount_usd < minUsd) throw new Error(`Min withdraw is $${minUsd}`);
     if (amount_usd > maxUsd) throw new Error(`Max withdraw is $${maxUsd}`);
     const prices = await refreshPrices();
     const px = data.currency === "TON" ? prices.TON : prices.USDT;
     const amount_native = amount_usd / px;
-    const net_amount = amount_native * (1 - feePct / 100);
+    // Fee = flat $0.01 + 5% of gross
+    const fee_usd = feeFlatUsd + amount_usd * (feePct / 100);
+    const net_usd = Math.max(0, amount_usd - fee_usd);
+    const net_amount = net_usd / px;
 
     await creditCoins(profile.tg_id, -data.coins, "withdraw", { currency: data.currency });
 
