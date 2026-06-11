@@ -61,7 +61,7 @@ export async function adminChangeCreds(
   if (newEmail && newEmail.toLowerCase() !== u.email) upd.email = newEmail.toLowerCase().trim();
   if (newPassword) upd.password_hash = hashPassword(newPassword);
   if (Object.keys(upd).length === 0) return { ok: true };
-  const { error } = await supabaseAdmin.from("admin_users").update(upd).eq("id", adminId);
+  const { error } = await supabaseAdmin.from("admin_users").update(upd as never).eq("id", adminId);
   if (error) throw new Error(error.message);
   return { ok: true };
 }
