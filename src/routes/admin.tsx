@@ -6,7 +6,7 @@ import {
   adminListTasks, adminSaveTask, adminDeleteTask,
   adminListChallenges, adminSaveChallenge, adminDeleteChallenge,
   adminGetSettings, adminSaveSetting, adminCreateBroadcast,
-  adminListTickets, adminReplyTicket,
+  adminListTickets, adminReplyTicket, adminChangeCredentials,
 } from "@/lib/admin.functions";
 import {
   adminListAdBlocks, adminSaveAdBlock, adminDeleteAdBlock,
@@ -19,7 +19,7 @@ export const Route = createFileRoute("/admin")({
   component: AdminPage,
 });
 
-type View = "dashboard" | "withdrawals" | "users" | "ads" | "tasks" | "challenges" | "broadcast" | "community" | "tickets" | "settings";
+type View = "dashboard" | "withdrawals" | "users" | "ads" | "tasks" | "challenges" | "broadcast" | "community" | "tickets" | "settings" | "profile";
 
 function AdminPage() {
   const [token, setToken] = useState<string | null>(() => (typeof localStorage !== "undefined" ? localStorage.getItem("ab_admin_token") : null));
@@ -68,7 +68,7 @@ function Panel({ token, onLogout }: { token: string; onLogout: () => void }) {
           <button onClick={onLogout} className="rounded-lg border border-border px-3 py-1 text-xs">Log out</button>
         </div>
         <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-3 pb-2 text-xs">
-          {(["dashboard", "withdrawals", "users", "ads", "tasks", "challenges", "broadcast", "community", "tickets", "settings"] as View[]).map((v) => (
+          {(["dashboard", "withdrawals", "users", "ads", "tasks", "challenges", "broadcast", "community", "tickets", "settings", "profile"] as View[]).map((v) => (
             <button key={v} onClick={() => setView(v)} className={`shrink-0 rounded-lg px-3 py-1.5 font-bold capitalize ${view === v ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground"}`}>
               {v}
             </button>
@@ -86,6 +86,7 @@ function Panel({ token, onLogout }: { token: string; onLogout: () => void }) {
         {view === "community" && <CommunityPost token={token} />}
         {view === "tickets" && <Tickets token={token} />}
         {view === "settings" && <Settings token={token} />}
+        {view === "profile" && <Profile token={token} />}
       </main>
     </div>
   );
@@ -555,6 +556,42 @@ function CommunityPost({ token }: { token: string }) {
       <Field label="Button URL"><input className="w-full bg-background rounded px-2 py-1" value={btnUrl} onChange={(e) => setBtnUrl(e.target.value)} /></Field>
       <button onClick={submit} className="mt-3 rounded-lg bg-primary px-3 py-1.5 font-bold text-primary-foreground">Send now</button>
       {msg && <p className="mt-3 text-xs">{msg}</p>}
+    </div>
+  );
+}
+
+function Profile({ token }: { token: string }) {
+  const change = useServerFn(adminChangeCredentials);
+  const [current, setCurrent] = useState("");
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function submit() {
+    setMsg(null); setErr(null); setBusy(true);
+    try {
+      await change({ data: {
+        token, current_password: current,
+        new_email: email || undefined, new_password: pw || undefined,
+      }});
+      setMsg("✅ Updated. Use new credentials next time.");
+      setCurrent(""); setEmail(""); setPw("");
+    } catch (e) { setErr(e instanceof Error ? e.message : "Failed"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="max-w-md rounded-2xl border border-border bg-card/70 p-4">
+      <h3 className="font-bold">🔐 Change admin email / password</h3>
+      <p className="text-[11px] text-muted-foreground">Leave a field blank to keep it unchanged.</p>
+      <Field label="Current password"><input type="password" className="w-full bg-background rounded px-2 py-1" value={current} onChange={(e) => setCurrent(e.target.value)} /></Field>
+      <Field label="New email (optional)"><input type="email" className="w-full bg-background rounded px-2 py-1" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+      <Field label="New password (optional, min 6)"><input type="password" className="w-full bg-background rounded px-2 py-1" value={pw} onChange={(e) => setPw(e.target.value)} /></Field>
+      <button onClick={submit} disabled={busy || !current} className="mt-3 rounded-lg bg-primary px-3 py-1.5 font-bold text-primary-foreground disabled:opacity-50">
+        {busy ? "Saving…" : "Save"}
+      </button>
+      {msg && <p className="mt-3 text-xs text-green-300">{msg}</p>}
+      {err && <p className="mt-3 text-xs text-destructive">{err}</p>}
     </div>
   );
 }

@@ -70,9 +70,11 @@ export const adminApproveWithdrawal = createServerFn({ method: "POST" })
     }
     const { data: settings } = await supabaseAdmin
       .from("app_settings").select("key,value")
-      .in("key", ["payment_channel_url", "mini_app_url"]);
+      .in("key", ["payment_channel_url", "payment_chat_id", "mini_app_url"]);
     const sm = Object.fromEntries((settings ?? []).map((s) => [s.key, s.value]));
     const payCh = (sm.payment_channel_url as string) ?? "";
+    let payChId = (sm.payment_chat_id as string) ?? "";
+    if (!payChId && payCh) payChId = payCh.replace(/^https?:\/\/t\.me\//, "@");
     const miniApp = (sm.mini_app_url as string) ?? "";
     const txUrl = w.currency === "TON"
       ? `https://tonscan.org/tx/${data.tx_id}`
@@ -81,33 +83,35 @@ export const adminApproveWithdrawal = createServerFn({ method: "POST" })
       await sendMessage({
         chat_id: w.tg_id, parse_mode: "HTML",
         text:
-          `✅ <b>Withdraw approved</b>\n` +
-          `Currency: <b>${w.currency}</b>\n` +
-          `Net: <code>${Number(w.net_amount).toFixed(6)}</code>\n` +
-          `New balance: <code>${Number(prof?.coins ?? 0).toLocaleString()}</code> coins\n` +
-          `Status: success\n` +
-          `TX: <code>${data.tx_id}</code>`,
+          `✅🎉 <b>Withdraw approved!</b> 🚀\n\n` +
+          `💎 Currency: <b>${w.currency === "TON" ? "TON" : "USDT (BEP20)"}</b>\n` +
+          `📤 Net sent: <code>${Number(w.net_amount).toFixed(6)}</code>\n` +
+          `🪙 New balance: <code>${Number(prof?.coins ?? 0).toLocaleString()}</code> coins\n` +
+          `📊 Status: <b>success</b> ✨\n` +
+          `🔗 TX: <code>${data.tx_id}</code>`,
         reply_markup: { inline_keyboard: [[
           { text: "🔎 View transaction", url: txUrl },
           { text: "🚀 Open app", url: miniApp || "https://t.me" },
         ]]},
       });
-      if (payCh) {
+    } catch (e) { console.error("[admin approve] user notify failed:", e); }
+    try {
+      if (payChId) {
         await sendMessage({
-          chat_id: payCh.replace(/^https?:\/\/t\.me\//, "@"),
+          chat_id: payChId,
           parse_mode: "HTML",
           text:
-            `💸 <b>Payment processed</b>\n` +
-            `User: <code>${w.tg_id}</code>\n` +
-            `Amount: <b>${Number(w.net_amount).toFixed(6)} ${w.currency}</b>\n` +
-            `TX: <code>${data.tx_id}</code>`,
+            `💸✅ <b>Payment processed</b> 🎉\n\n` +
+            `👤 User: <code>${w.tg_id}</code>\n` +
+            `💰 Amount: <b>${Number(w.net_amount).toFixed(6)} ${w.currency === "TON" ? "TON" : "USDT (BEP20)"}</b>\n` +
+            `🔗 TX: <code>${data.tx_id}</code>`,
           reply_markup: { inline_keyboard: [[
             { text: "🔎 View transaction", url: txUrl },
             { text: "🚀 Open mini app", url: miniApp || "https://t.me" },
           ]]},
         });
       }
-    } catch { /* ignore */ }
+    } catch (e) { console.error("[admin approve] channel post failed:", e); }
     return { ok: true };
   });
 
@@ -315,4 +319,24 @@ export const adminReplyTicket = createServerFn({ method: "POST" })
       });
     } catch { /* ignore */ }
     return { ok: true };
+  });
+
+// Change admin email / password from the panel (requires current password).
+const ChangeCredsSchema = TokenSchema.extend({
+  current_password: z.string().min(1).max(200),
+  new_email: z.string().email().optional(),
+  new_password: z.string().min(6).max(200).optional(),
+});
+
+export const adminChangeCredentials = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => ChangeCredsSchema.parse(d))
+  .handler(async ({ data }) => {
+    const { requireAdmin, adminChangeCreds } = await import("./admin.server");
+    const session = await requireAdmin(data.token);
+    return await adminChangeCreds(
+      session.admin_id as string,
+      data.current_password,
+      data.new_email,
+      data.new_password,
+    );
   });

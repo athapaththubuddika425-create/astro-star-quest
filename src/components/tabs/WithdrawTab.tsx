@@ -81,11 +81,16 @@ export default function WithdrawTab({ initData, profile, onCoins }: { initData: 
   const previewUsd = coinsNum * d.coin_to_usd_rate;
   const previewPrice = currency === "TON" ? d.prices.TON : d.prices.USDT;
   const previewNative = previewPrice > 0 ? previewUsd / previewPrice : 0;
-  const previewNet = previewNative * (1 - d.fee_pct / 100);
+  const feeUsd = d.fee_flat_usd + previewUsd * (d.fee_pct / 100);
+  const previewNetUsd = Math.max(0, previewUsd - feeUsd);
+  const previewNet = previewPrice > 0 ? previewNetUsd / previewPrice : 0;
   const overLimit = coinsNum > d.coins;
   const underMin = coinsNum > 0 && previewUsd < d.min_withdraw_usd;
   const overMax = previewUsd > d.max_withdraw_usd;
   const maxCoins = Math.floor(d.max_withdraw_usd / d.coin_to_usd_rate);
+  const reqMet = d.requirements.met;
+  const blocked = d.has_pending;
+  void previewNative;
 
   return (
     <div>
@@ -95,10 +100,27 @@ export default function WithdrawTab({ initData, profile, onCoins }: { initData: 
         <div className="mt-1 grid grid-cols-2 gap-x-3 text-[11px] text-muted-foreground">
           <span>💎 TON: <b className="text-foreground">${d.prices.TON.toFixed(3)}</b></span>
           <span>💵 USDT: <b className="text-foreground">${d.prices.USDT.toFixed(3)}</b></span>
-          <span>Fee: {d.fee_pct}%</span>
+          <span>Fee: ${d.fee_flat_usd} + {d.fee_pct}%</span>
           <span>Min ${d.min_withdraw_usd} • Max ${d.max_withdraw_usd}</span>
         </div>
       </div>
+
+      {/* Withdraw requirements */}
+      <div className={`mt-2 rounded-2xl border p-3 text-xs ${reqMet ? "border-green-500/30 bg-green-500/5" : "border-yellow-500/30 bg-yellow-500/5"}`}>
+        <p className="font-bold">{reqMet ? "✅ Requirements met" : "🔒 Withdraw requirements"}</p>
+        <p className="text-muted-foreground">
+          📺 Ads watched: <b className="text-foreground">{d.requirements.ads_done}</b> / {d.requirements.min_ads}
+          {d.requirements.min_refers > 0 && (
+            <> • 👥 Verified refers: <b className="text-foreground">{d.requirements.refers_done}</b> / {d.requirements.min_refers}</>
+          )}
+        </p>
+      </div>
+
+      {blocked && (
+        <div className="mt-2 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-3 text-xs text-yellow-200">
+          ⏳ You have a pending withdrawal. Please wait for it to be processed before submitting another.
+        </div>
+      )}
 
       <div className="mt-3 grid grid-cols-3 gap-1 rounded-2xl border border-border bg-card/50 p-1">
         {(["withdraw", "history", "support"] as const).map((t) => (
@@ -134,13 +156,14 @@ export default function WithdrawTab({ initData, profile, onCoins }: { initData: 
             <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" className="mt-1 w-full rounded-xl bg-background border border-border px-3 py-2 text-lg font-bold outline-none" placeholder="0" />
             <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
               <div>≈ <b className="text-foreground">${previewUsd.toFixed(4)}</b></div>
-              <div className="text-right">Net: <b className="text-foreground">{previewNet.toFixed(6)} {currency === "TON" ? "TON" : "USDT"}</b></div>
+              <div className="text-right">Fee: <b className="text-foreground">${feeUsd.toFixed(4)}</b></div>
+              <div className="col-span-2 text-right">Net: <b className="text-gold">{previewNet.toFixed(6)} {currency === "TON" ? "TON" : "USDT"}</b></div>
             </div>
             {overLimit && <p className="mt-1 text-xs text-destructive">Exceeds your balance</p>}
             {underMin && <p className="mt-1 text-xs text-destructive">Below ${d.min_withdraw_usd} minimum</p>}
             {overMax && <p className="mt-1 text-xs text-destructive">Above ${d.max_withdraw_usd} maximum</p>}
-            <button onClick={onWithdraw} disabled={busy || !amount || overLimit || underMin || overMax} className="mt-3 h-11 w-full rounded-xl text-sm font-bold text-primary-foreground disabled:opacity-50" style={{ background: "var(--gradient-blitz)" }}>
-              {busy ? "Submitting…" : "💸 Watch ad & request"}
+            <button onClick={onWithdraw} disabled={busy || blocked || !reqMet || !amount || overLimit || underMin || overMax} className="mt-3 h-11 w-full rounded-xl text-sm font-bold text-primary-foreground disabled:opacity-50" style={{ background: "var(--gradient-blitz)" }}>
+              {busy ? "Submitting…" : blocked ? "⏳ Pending withdrawal" : !reqMet ? "🔒 Requirements not met" : "💸 Watch ad & request"}
             </button>
           </div>
 

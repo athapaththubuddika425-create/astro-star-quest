@@ -6,7 +6,6 @@ import { showAd } from "@/lib/adsdk";
 import type { Profile } from "../MainApp";
 
 type Props = { initData: string; profile: Profile; onCoins: (c: number) => void };
-
 type Obstacle = { x: number; gapY: number; gap: number; passed?: boolean };
 
 const GRAVITY = 0.35;
@@ -21,10 +20,11 @@ export default function GameTab({ initData, profile, onCoins }: Props) {
   const [best, setBest] = useState(() => Number(localStorage.getItem("ab_best") ?? 0));
   const [reward, setReward] = useState<number | null>(null);
   const finish = useServerFn(finishGame);
-  const watchAd = useServerFn(claimAd);
+  const watchAdFn = useServerFn(claimAd);
   const pickAd = useServerFn(getRandomAdNetwork);
   const [reviveUsed, setReviveUsed] = useState(false);
-  const [reviveBusy, setReviveBusy] = useState(false);
+  const [busy, setBusy] = useState<null | "play" | "revive" | "claim">(null);
+  const [error, setError] = useState<string | null>(null);
 
   const stateRef = useRef({
     y: 0, v: 0, obstacles: [] as Obstacle[], frame: 0, score: 0, alive: false,
@@ -45,52 +45,45 @@ export default function GameTab({ initData, profile, onCoins }: Props) {
     const reset = () => {
       stateRef.current = { y: H / 2, v: 0, obstacles: [], frame: 0, score: 0, alive: true };
     };
-
     const spawn = () => {
       const gap = 160;
       const gapY = 60 + Math.random() * (H - 120 - gap);
       stateRef.current.obstacles.push({ x: W, gapY, gap });
     };
-
+    const die = () => {
+      if (!stateRef.current.alive) return;
+      stateRef.current.alive = false;
+      window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred("error");
+      setStatus("dead");
+    };
     const tick = () => {
       const s = stateRef.current;
-      ctx.fillStyle = "#0f0820";
-      ctx.fillRect(0, 0, W, H);
-      // stars
+      ctx.fillStyle = "#0f0820"; ctx.fillRect(0, 0, W, H);
       for (const st of stars) {
-        st.x -= 0.4;
-        if (st.x < 0) st.x = W;
-        ctx.globalAlpha = 0.6;
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(st.x, st.y, st.s, st.s);
-        ctx.globalAlpha = 1;
+        st.x -= 0.4; if (st.x < 0) st.x = W;
+        ctx.globalAlpha = 0.6; ctx.fillStyle = "#fff";
+        ctx.fillRect(st.x, st.y, st.s, st.s); ctx.globalAlpha = 1;
       }
       if (s.alive) {
         s.v += GRAVITY; s.y += s.v; s.frame++;
         if (s.frame % 90 === 0) spawn();
         for (const o of s.obstacles) o.x -= 2.6;
         s.obstacles = s.obstacles.filter((o) => o.x + PIPE_W > -10);
-        // collisions / scoring
         for (const o of s.obstacles) {
           if (!o.passed && o.x + PIPE_W < ROCKET_X) {
-            o.passed = true; s.score++;
-            setScore(s.score);
+            o.passed = true; s.score++; setScore(s.score);
           }
           if (ROCKET_X + 16 > o.x && ROCKET_X - 16 < o.x + PIPE_W) {
-            if (s.y - 14 < o.gapY || s.y + 14 > o.gapY + o.gap) {
-              die();
-            }
+            if (s.y - 14 < o.gapY || s.y + 14 > o.gapY + o.gap) die();
           }
         }
         if (s.y > H - 8 || s.y < 8) die();
       }
-      // pipes
       ctx.fillStyle = "rgba(168,85,247,0.85)";
       for (const o of s.obstacles) {
         ctx.fillRect(o.x, 0, PIPE_W, o.gapY);
         ctx.fillRect(o.x, o.gapY + o.gap, PIPE_W, H - (o.gapY + o.gap));
       }
-      // rocket
       ctx.save();
       ctx.translate(ROCKET_X, s.y);
       ctx.rotate(Math.min(0.6, Math.max(-0.6, s.v / 12)));
@@ -99,14 +92,6 @@ export default function GameTab({ initData, profile, onCoins }: Props) {
       ctx.restore();
       raf = requestAnimationFrame(tick);
     };
-
-    const die = () => {
-      if (!stateRef.current.alive) return;
-      stateRef.current.alive = false;
-      window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred("error");
-      setStatus("dead");
-    };
-
     const flap = () => {
       if (status === "playing") {
         stateRef.current.v = FLAP;
@@ -121,50 +106,86 @@ export default function GameTab({ initData, profile, onCoins }: Props) {
     }
     if (status === "playing") { reset(); tick(); }
     if (status === "dead") {
-      // freeze last frame; show overlay via state
       ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(0, 0, W, H);
     }
 
     c.addEventListener("pointerdown", flap);
-    return () => {
-      c.removeEventListener("pointerdown", flap);
-      cancelAnimationFrame(raf);
-    };
+    return () => { c.removeEventListener("pointerdown", flap); cancelAnimationFrame(raf); };
   }, [status]);
 
-  async function settle(s: number, revived: boolean) {
+  // Show an ad and resolve true on completion, false on failure
+  async function tryShowRewardAd(): Promise<boolean> {
     try {
-      const r = await finish({ data: { initData, level_reached: Math.max(1, s), revived } });
-      setReward(r.reward);
-      onCoins(r.new_balance);
-      if (s > best) { setBest(s); localStorage.setItem("ab_best", String(s)); }
-    } catch (e) {
-      console.error(e);
+      const net = await pickAd({ data: { initData } });
+      if (!net?.network) return false;
+      await showAd(net.network, net.sdk_extra as never, "reward");
+      return true;
+    } catch { return false; }
+  }
+
+  async function onPlay() {
+    if (busy) return;
+    setError(null);
+    setBusy("play");
+    try {
+      // Random ad: ~1 in 4 play taps shows an ad. If shown, wait for it
+      // to finish BEFORE starting the game so the player doesn't crash mid-ad.
+      const showsAd = Math.random() < 0.25;
+      if (showsAd) {
+        const ok = await tryShowRewardAd();
+        if (!ok) {
+          // If a chosen ad fails to play, don't punish the user — just start.
+        }
+      }
+      setReward(null);
+      setScore(0);
+      setReviveUsed(false);
+      setStatus("playing");
+    } finally {
+      setBusy(null);
     }
   }
 
-  async function onGameOver(action: "claim" | "revive") {
-    if (action === "claim") {
-      await settle(score, false);
-    } else {
-      if (reviveBusy) return;
-      setReviveBusy(true);
-      try {
-        // Ad MUST play. If it fails, do NOT revive.
-        const net = await pickAd({ data: { initData } });
-        if (!net?.network) throw new Error("No ad network available");
-        await showAd(net.network, net.sdk_extra as never, "reward");
-        await watchAd({ data: { initData, slot: "revive", network: net.network } });
-        setReviveUsed(true);
-        stateRef.current.alive = true;
-        stateRef.current.v = FLAP;
-        setStatus("playing");
-      } catch (e) {
-        console.error(e);
-        alert("Ad failed — please try again.");
-      } finally {
-        setReviveBusy(false);
-      }
+  async function onClaim() {
+    if (busy) return;
+    setError(null);
+    setBusy("claim");
+    try {
+      // Watch ad first — coins ONLY credit if ad completes.
+      const ok = await tryShowRewardAd();
+      if (!ok) { setError("Ad didn't play. Try again to claim your coins."); return; }
+      const net = await pickAd({ data: { initData } });
+      await watchAdFn({ data: { initData, slot: "claim", network: net?.network ?? undefined } });
+      const r = await finish({
+        data: { initData, level_reached: Math.max(0, score), revived: reviveUsed, ad_verified: true },
+      });
+      setReward(r.reward);
+      onCoins(r.new_balance);
+      if (score > best) { setBest(score); localStorage.setItem("ab_best", String(score)); }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onRevive() {
+    if (busy) return;
+    setError(null);
+    setBusy("revive");
+    try {
+      const ok = await tryShowRewardAd();
+      if (!ok) { setError("Ad didn't play — try again."); return; }
+      const net = await pickAd({ data: { initData } });
+      await watchAdFn({ data: { initData, slot: "revive", network: net?.network ?? undefined } });
+      setReviveUsed(true);
+      stateRef.current.alive = true;
+      stateRef.current.v = FLAP;
+      setStatus("playing");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -190,6 +211,7 @@ export default function GameTab({ initData, profile, onCoins }: Props) {
                   <p className="text-3xl">🚀</p>
                   <h3 className="mt-2 text-lg font-extrabold">Ready, Astronaut?</h3>
                   <p className="text-xs text-muted-foreground">Tap to flap. Avoid the nebulas.</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">Reward: <b className="text-gold">1 coin per level</b></p>
                 </>
               )}
               {status === "dead" && reward === null && (
@@ -197,28 +219,35 @@ export default function GameTab({ initData, profile, onCoins }: Props) {
                   <p className="text-3xl">💥</p>
                   <h3 className="mt-2 text-lg font-extrabold">Crash!</h3>
                   <p className="text-xs text-muted-foreground">Score {score} • Best {best}</p>
+                  <p className="mt-2 rounded-lg bg-card/60 px-3 py-2 text-[11px] text-muted-foreground">
+                    📺 Watch a short ad to <b className="text-foreground">claim {Math.max(0, score)} coin{score === 1 ? "" : "s"}</b>.
+                  </p>
                 </>
               )}
               {status === "dead" && reward !== null && (
                 <>
                   <p className="text-3xl">🪙</p>
-                  <h3 className="mt-2 text-lg font-extrabold">+{reward} coins</h3>
+                  <h3 className="mt-2 text-lg font-extrabold text-gold">+{reward} coins claimed!</h3>
+                  <p className="text-xs text-muted-foreground">Score {score} • Best {best}</p>
                 </>
               )}
+
+              {error && <p className="mt-3 rounded-lg bg-destructive/15 px-2 py-1.5 text-[11px] text-destructive">{error}</p>}
+
               <div className="mt-4 flex flex-col gap-2">
                 {status === "dead" && reward === null && !reviveUsed && (
-                  <button onClick={() => onGameOver("revive")} disabled={reviveBusy} className="h-11 rounded-xl text-sm font-bold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-blitz)" }}>
-                    {reviveBusy ? "Loading ad…" : "📺 Watch ad to revive"}
+                  <button onClick={onRevive} disabled={!!busy} className="h-11 rounded-xl text-sm font-bold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-blitz)" }}>
+                    {busy === "revive" ? "Loading ad…" : "📺 Watch ad to revive"}
                   </button>
                 )}
                 {status === "dead" && reward === null && (
-                  <button onClick={() => onGameOver("claim")} className="h-11 rounded-xl border border-border text-sm font-bold">
-                    Claim coins
+                  <button onClick={onClaim} disabled={!!busy} className="h-11 rounded-xl text-sm font-bold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-primary)" }}>
+                    {busy === "claim" ? "Loading ad…" : `🎁 Watch ad & claim ${Math.max(0, score)}c`}
                   </button>
                 )}
                 {(status === "idle" || reward !== null) && (
-                  <button onClick={() => { setReward(null); setScore(0); setReviveUsed(false); setStatus("playing"); }} className="h-11 rounded-xl text-sm font-bold text-primary-foreground" style={{ background: "var(--gradient-primary)" }}>
-                    ▶️ Play
+                  <button onClick={onPlay} disabled={!!busy} className="h-11 rounded-xl text-sm font-bold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-primary)" }}>
+                    {busy === "play" ? "Loading…" : "▶️ Play"}
                   </button>
                 )}
               </div>
@@ -232,7 +261,7 @@ export default function GameTab({ initData, profile, onCoins }: Props) {
         )}
       </div>
       <p className="text-center text-xs text-muted-foreground">
-        Reward: 1–2 coins per run. Crash? Watch an ad to revive and keep going.
+        Earn 1 coin per level. Coins only credit when you watch an ad and claim. 🚀
       </p>
     </div>
   );
