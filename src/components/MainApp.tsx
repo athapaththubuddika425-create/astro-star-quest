@@ -17,13 +17,14 @@ type Props = { initData: string; profile: Profile; onProfile: (p: Profile) => vo
 export default function MainApp({ initData, profile, onProfile }: Props) {
   const [tab, setTab] = useState<TabId>("home");
 
-  // First interstitial 1–3s after open, then every 60–70s while open.
+  // Interstitial loop every 60–70s, but NEVER while the Game tab is open.
   useEffect(() => {
+    if (tab === "game") return;
     let cancelled = false;
     const showOnce = () => {
       showAd("adsgram", { blocks: ["int-34544"] }, "interstitial").catch(() => {});
     };
-    const firstT = setTimeout(showOnce, 1000 + Math.random() * 2000);
+    const firstT = setTimeout(showOnce, 1500 + Math.random() * 1500);
     let loopT: ReturnType<typeof setTimeout>;
     const scheduleNext = () => {
       if (cancelled) return;
@@ -32,7 +33,7 @@ export default function MainApp({ initData, profile, onProfile }: Props) {
     };
     scheduleNext();
     return () => { cancelled = true; clearTimeout(firstT); clearTimeout(loopT!); };
-  }, []);
+  }, [tab]);
 
   const refresh = useCallback(
     async (newCoins?: number) => {
