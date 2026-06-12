@@ -37,6 +37,7 @@ function AppShell() {
   const { tg, ready } = useTelegram();
   const init = useServerFn(initSession);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [suspendReason, setSuspendReason] = useState<string | null>(null);
@@ -52,6 +53,7 @@ function AppShell() {
     setLoading(true);
     init({ data: { initData, device_fingerprint: getDeviceFingerprint() } })
       .then((r) => {
+        setIsAdmin(!!r.is_admin);
         if (r.suspended || r.profile.is_suspended) {
           setSuspendReason(r.profile.suspend_reason ?? "Your account is suspended.");
           setProfile(r.profile);
@@ -102,5 +104,5 @@ function AppShell() {
     );
   }
 
-  return <MainApp initData={tg!.initData} profile={profile} onProfile={setProfile} />;
+  return <MainApp initData={tg!.initData} profile={profile} onProfile={setProfile} isAdmin={isAdmin} />;
 }
