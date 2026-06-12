@@ -8,13 +8,13 @@ import TaskTab from "./tabs/TaskTab";
 import ReferTab from "./tabs/ReferTab";
 import WithdrawTab from "./tabs/WithdrawTab";
 
-export type TabId = "home" | "watch" | "task" | "refer" | "withdraw" | "game";
+export type TabId = "home" | "watch" | "task" | "refer" | "withdraw" | "game" | "admin";
 
 export type Profile = Awaited<ReturnType<typeof initSession>>["profile"];
 
-type Props = { initData: string; profile: Profile; onProfile: (p: Profile) => void };
+type Props = { initData: string; profile: Profile; onProfile: (p: Profile) => void; isAdmin?: boolean };
 
-export default function MainApp({ initData, profile, onProfile }: Props) {
+export default function MainApp({ initData, profile, onProfile, isAdmin = false }: Props) {
   const [tab, setTab] = useState<TabId>("home");
 
   // Interstitial loop every 60–70s, but NEVER while the Game tab is open.
