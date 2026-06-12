@@ -11,6 +11,42 @@ export const adminLoginFn = createServerFn({ method: "POST" })
     return { token };
   });
 
+// Auto-login: only the Telegram user whose tg_id matches app_settings.admin_tg_id
+// can mint a session. Replaces the legacy email/password login for mini-app admin.
+export const adminLoginByTgId = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ initData: z.string().min(10).max(8192) }).parse(d))
+  .handler(async ({ data }) => {
+    const { verifyInitData } = await import("./telegram.server");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { randomBytes } = await import("crypto");
+
+    const v = verifyInitData(data.initData);
+    if (!v.ok) throw new Error("Telegram verification failed");
+
+    const { data: row } = await supabaseAdmin
+      .from("app_settings").select("value").eq("key", "admin_tg_id").maybeSingle();
+    const adminTgId = Number(row?.value);
+    if (!adminTgId || adminTgId !== v.user.id) throw new Error("Not authorized");
+
+    // Find or auto-create admin row keyed by tg_id email-shape
+    const adminEmail = `tg-${adminTgId}@astroblitz.local`;
+    let { data: u } = await supabaseAdmin
+      .from("admin_users").select("*").eq("email", adminEmail).maybeSingle();
+    if (!u) {
+      const ins = await supabaseAdmin.from("admin_users").insert({
+        email: adminEmail,
+        password_hash: `BOOTSTRAP:${randomBytes(16).toString("hex")}`,
+      }).select("*").single();
+      u = ins.data;
+    }
+    if (!u) throw new Error("Admin provisioning failed");
+
+    const token = randomBytes(32).toString("hex");
+    const expires = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+    await supabaseAdmin.from("admin_sessions").insert({ token, admin_id: u.id, expires_at: expires });
+    return { token, is_admin: true as const };
+  });
+
 const TokenSchema = z.object({ token: z.string().min(10) });
 
 export const adminStats = createServerFn({ method: "POST" })
