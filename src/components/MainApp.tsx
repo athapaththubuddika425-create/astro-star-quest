@@ -95,20 +95,22 @@ function BgStars() {
   );
 }
 
-function BottomNav({ tab, onTab }: { tab: TabId; onTab: (t: TabId) => void }) {
+function BottomNav({ tab, onTab, isAdmin }: { tab: TabId; onTab: (t: TabId) => void; isAdmin?: boolean }) {
   const items: { id: TabId; i: string; l: string }[] = [
     { id: "home", i: "🏠", l: "Home" },
     { id: "watch", i: "📺", l: "Watch" },
     { id: "task", i: "✅", l: "Task" },
     { id: "refer", i: "👥", l: "Refer" },
     { id: "withdraw", i: "💸", l: "Withdraw" },
+    ...(isAdmin ? [{ id: "admin" as const, i: "🛠️", l: "Admin" }] : []),
   ];
   useEffect(() => {
     window.Telegram?.WebApp?.HapticFeedback?.selectionChanged();
   }, [tab]);
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 ab-safe-bottom">
-      <div className="mx-3 mb-3 grid grid-cols-5 gap-1 rounded-2xl border border-border bg-card/90 p-1.5 backdrop-blur-xl">
+      <div className={`mx-3 mb-3 grid ${isAdmin ? "grid-cols-6" : "grid-cols-5"} gap-1 rounded-2xl border border-border bg-card/90 p-1.5 backdrop-blur-xl`}>
+
         {items.map((t) => {
           const active = tab === t.id || (t.id === "home" && tab === "game");
           return (
